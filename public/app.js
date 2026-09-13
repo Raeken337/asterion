@@ -33,12 +33,26 @@ function addMessage(role, text, modeLabel = "") {
   return message;
 }
 
+function updateReply(bubble, text) {
+  const nearBottom =
+    messages.scrollHeight -
+    messages.scrollTop -
+    messages.clientHeight < 100;
+
+  bubble.querySelector("p").textContent = text;
+
+  // Let the user read older messages without pulling them downward.
+  if (nearBottom) {
+    messages.scrollTop = messages.scrollHeight;
+  }
+}
+
 function showWelcome() {
   addMessage(
     "system",
-    "Welcome to Asterion 🌙 Send a message to your local model. " +
-      "Recent exchanges provide context; clear chat or refresh resets it. " +
-      "Web access and lasting memory are not connected."
+    "Welcome to Asterion 🌙 Replies appear as your local model " +
+      "generates them. Recent exchanges provide context; clear chat " +
+      "or refresh resets it. Web access and lasting memory are not connected."
   );
 }
 
@@ -49,6 +63,68 @@ function setSending(sending) {
   personality.disabled = sending;
   input.disabled = sending;
   sendButton.textContent = sending ? "Replying…" : "Send ↑";
+}
+
+async function readEvents(response, onEvent, onActivity) {
+  if (!response.body) {
+    throw new Error("Your browser did not provide a response stream.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  function processLine(line) {
+    if (!line.trim()) return false;
+
+    const event = JSON.parse(line);
+
+    if (!event || typeof event !== "object") {
+      throw new Error("The server sent an invalid event.");
+    }
+
+    onEvent(event);
+    return event.type === "done";
+  }
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+
+      if (done) {
+        buffer += decoder.decode();
+
+        if (buffer.trim() && processLine(buffer)) {
+          return;
+        }
+
+        throw new Error("The connection ended before the reply finished.");
+      }
+
+      onActivity();
+      buffer += decoder.decode(value, { stream: true });
+
+      // A network packet can contain part of a line or several lines.
+      let newlineIndex;
+
+      while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
+        const line = buffer.slice(0, newlineIndex);
+        buffer = buffer.slice(newlineIndex + 1);
+
+        if (processLine(line)) {
+          return;
+        }
+      }
+    }
+  } finally {
+    try {
+      await reader.cancel();
+    } catch {
+      // The connection may already be closed.
+    }
+
+    reader.releaseLock();
+  }
 }
 
 form.addEventListener("submit", async (event) => {
@@ -68,12 +144,31 @@ form.addEventListener("submit", async (event) => {
     personality.options[personality.selectedIndex].text;
 
   const userBubble = addMessage("user", text);
+  const assistantBubble = addMessage(
+    "assistant",
+    "Waiting for the local model…",
+    modeLabel
+  );
+
+  assistantBubble.setAttribute("aria-busy", "true");
 
   input.value = "";
   setSending(true);
 
   const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), 135000);
+  let timeoutId;
+  let reply = "";
+  let completed = false;
+  let truncated = false;
+
+  function resetTimeout() {
+    window.clearTimeout(timeoutId);
+    timeoutId = window.setTimeout(() => {
+      controller.abort();
+    }, 135000);
+  }
+
+  resetTimeout();
 
   try {
     const response = await fetch("/api/chat", {
@@ -87,59 +182,84 @@ form.addEventListener("submit", async (event) => {
       signal: controller.signal
     });
 
-    const data = await response.json();
-
     if (!response.ok) {
+      const data = await response.json();
       throw new Error(data.error || "The server rejected the message.");
     }
 
-    if (
-      typeof data.reply !== "string" ||
-      !data.reply.trim() ||
-      data.mode !== "local"
-    ) {
-      throw new Error("The server returned an unexpected response.");
+    const contentType = response.headers.get("Content-Type") || "";
+
+    if (!contentType.includes("application/x-ndjson")) {
+      throw new Error(
+        "The server is not streaming yet. Restart Python and refresh the page."
+      );
     }
 
-    addMessage("assistant", data.reply, modeLabel);
+    await readEvents(
+      response,
+      (event) => {
+        if (event.type === "chunk" && typeof event.text === "string") {
+          reply += event.text;
+          updateReply(assistantBubble, reply);
+        } else if (event.type === "done") {
+          completed = true;
+          truncated = event.truncated === true;
+        } else if (event.type === "error") {
+          throw new Error(event.message || "The model could not finish.");
+        } else {
+          throw new Error("The server sent an unexpected event.");
+        }
+      },
+      resetTimeout
+    );
 
-    // Only successful exchanges become conversation context.
+    if (!completed || !reply.trim()) {
+      throw new Error("The model did not finish a usable reply.");
+    }
+
     conversation.push(
       { role: "user", content: text },
-      { role: "assistant", content: data.reply }
+      { role: "assistant", content: reply }
     );
 
     conversation = conversation.slice(-12);
 
-    if (data.truncated) {
+    if (truncated) {
       addMessage(
         "system",
         "This reply reached its length limit. Ask Asterion to continue."
       );
     }
   } catch (error) {
+    controller.abort();
+
     let notice;
 
     if (error.name === "AbortError") {
-      notice =
-        "The request timed out. The model may still be finishing it. " +
-        "Wait a moment before retrying.";
+      notice = "The reply stopped responding for too long. Please retry.";
     } else if (error instanceof TypeError) {
       notice =
-        "Cannot reach the Python server. Check that server.py is running.";
+        "The server connection failed. Check that Python is running.";
     } else if (error instanceof SyntaxError) {
       notice =
-        "The server returned an unreadable response. Check its terminal.";
+        "The server sent unreadable data. Check its terminal for errors.";
     } else {
       notice = error.message;
     }
 
-    // Remove the failed attempt to avoid duplicate bubbles on retry.
+    // Failed exchanges must not become context or duplicate on retry.
     userBubble.remove();
-    addMessage("system", notice);
+    assistantBubble.remove();
+
+    addMessage(
+      "system",
+      notice + " This attempt was discarded; your message is ready to retry."
+    );
+
     input.value = text;
   } finally {
     window.clearTimeout(timeoutId);
+    assistantBubble.removeAttribute("aria-busy");
     setSending(false);
     input.focus();
   }

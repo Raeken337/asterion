@@ -1,9 +1,13 @@
+import json
 from pathlib import Path
 
-from flask import Flask, jsonify, request
+from flask import Flask, Response, jsonify, request
 
-from local_model import MODEL_NAME, ModelError, generate_reply
+from local_model import MODEL_NAME, ModelError, stream_reply
 from personalities import PERSONALITIES, build_system_prompt
+
+import webbrowser
+from threading import Timer
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
@@ -124,16 +128,33 @@ def chat():
         {"role": "user", "content": message},
     ]
 
-    try:
-        result = generate_reply(model_messages)
-    except ModelError as error:
-        return jsonify(error=str(error)), 502
+    def generate_events():
+        stream = stream_reply(model_messages)
 
-    return jsonify(
-        **result,
-        mode="local",
-        model=MODEL_NAME,
-        personality=personality,
+        try:
+            for event in stream:
+                yield json.dumps(event) + "\n"
+        except ModelError as error:
+            yield json.dumps({
+                "type": "error",
+                "message": str(error),
+            }) + "\n"
+        except Exception:
+            app.logger.exception("Unexpected streaming failure")
+            yield json.dumps({
+                "type": "error",
+                "message": "The server could not finish this reply.",
+            }) + "\n"
+        finally:
+            stream.close()
+
+    return Response(
+        generate_events(),
+        mimetype="application/x-ndjson",
+        headers={
+            "Cache-Control": "no-store",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 
@@ -143,4 +164,9 @@ def request_too_large(error):
 
 
 if __name__ == "__main__":
+    Timer(
+        1.0,
+        lambda: webbrowser.open("http://127.0.0.1:5000")
+    ).start()
+
     app.run(host="127.0.0.1", port=5000, debug=False)
