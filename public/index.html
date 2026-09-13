@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Asterion</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script src="./app.js" defer></script>
+</head>
+<body>
+  <main class="app">
+    <header class="header">
+      <div class="identity">
+        <span class="moon" aria-hidden="true">☾</span>
+        <div>
+          <h1>Asterion</h1>
+          <p>A little clarity in the cosmos.</p>
+        </div>
+      </div>
+      <span class="badge">Interface demo · No AI connected</span>
+    </header>
+
+    <section class="toolbar" aria-label="Chat settings">
+      <div class="personality-control">
+        <label for="personality">Personality</label>
+        <select id="personality">
+          <option value="playful">Playful</option>
+          <option value="brooding">Brooding</option>
+          <option value="clinical">Clinical</option>
+          <option value="boomer">Boomer</option>
+          <option value="creative">Creative / Celestial</option>
+        </select>
+      </div>
+
+      <button id="clear-chat" class="secondary-button" type="button">
+        Clear chat
+      </button>
+    </section>
+
+    <section
+      id="messages"
+      class="messages"
+      role="log"
+      aria-label="Conversation"
+      aria-live="polite"
+      aria-relevant="additions"
+    ></section>
+
+    <form id="chat-form" class="composer">
+      <label class="visually-hidden" for="message-input">
+        Your message
+      </label>
+      <textarea
+        id="message-input"
+        name="message"
+        rows="2"
+        maxlength="4000"
+        placeholder="What’s on your mind?"
+        aria-describedby="composer-help"
+        required
+      ></textarea>
+      <button class="send-button" type="submit">Send ↑</button>
+    </form>
+
+    <footer id="composer-help">
+      Enter to send · Shift + Enter for a new line ·
+      Chat resets when you refresh
+    </footer>
+  </main>
+</body>
+</html>
