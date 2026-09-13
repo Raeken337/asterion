@@ -241,6 +241,25 @@ footer {
   border: 0;
 }
 
+button:disabled,
+select:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+textarea:disabled {
+  opacity: 0.6;
+}
+
+.message.system {
+  background: #292017;
+  border-color: #695035;
+}
+
+.message.system .message-label {
+  color: #f2c68d;
+}
+
 @media (max-width: 600px) {
   body {
     padding: 12px;
