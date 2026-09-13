@@ -57,7 +57,7 @@ textarea:focus-visible {
 }
 
 .app {
-  width: min(920px, 100%);
+  width: min(1200px, 100%);
   height: calc(100vh - 48px);
   height: calc(100dvh - 48px);
   min-height: 480px;
@@ -436,4 +436,33 @@ textarea:disabled {
   .send-button {
     padding: 12px;
   }
+}
+
+.workspace { display: flex; flex: 1; min-height: 0; gap: 24px; }
+.chat-sidebar { width: 230px; flex-shrink: 0; display: flex; flex-direction: column; gap: 12px; }
+.sidebar-label, #chat-status { color: var(--muted); font-size: 12px; margin: 0; overflow-wrap: anywhere; }
+#chat-list { flex: 1; overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
+.chat-link { text-align: left; background: transparent; color: var(--muted); padding: 12px; overflow-wrap: anywhere; flex-shrink: 0; }
+.chat-link[aria-current="page"] { background: #26213c; border-color: var(--accent); color: #eeedf8; }
+.chat-panel { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.chat-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 14px; }
+.chat-heading h2 { font-size: 16px; margin: 0; overflow-wrap: anywhere; }
+.chat-actions { display: flex; gap: 6px; flex-shrink: 0; }
+dialog { width: min(440px, calc(100% - 32px)); border: 1px solid var(--border); border-radius: 18px; padding: 24px; background: #141624; color: #eeedf8; }
+dialog::backdrop { background: #0009; }
+dialog h2 { margin-top: 0; font-size: 20px; }
+dialog p { line-height: 1.5; overflow-wrap: anywhere; }
+dialog label { display: block; margin-bottom: 8px; }
+dialog input { width: 100%; padding: 12px; font: inherit; border: 1px solid var(--border); border-radius: 8px; background: #090b14; color: #eeedf8; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 22px; }
+[hidden] { display: none !important; }
+@media (max-width: 760px) {
+  .workspace { flex-direction: column; gap: 12px; }
+  .chat-sidebar { width: 100%; display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+  .sidebar-label { display: none; }
+  #chat-list { grid-column: 1 / -1; flex-direction: row; max-height: 90px; overflow: auto; }
+  .chat-link { max-width: 220px; }
+  #reload-chats { grid-column: 2; grid-row: 1; }
+  #chat-status { grid-column: 1 / -1; }
+  .chat-heading { flex-wrap: wrap; }
 }

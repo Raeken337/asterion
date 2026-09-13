@@ -8,9 +8,6 @@
   <script src="./vendor/marked.umd.js" defer></script>
   <script src="./vendor/purify.min.js" defer></script>
   <script src="./markdown.js" defer></script>
-  <script src="./vendor/marked.umd.js" defer></script>
-  <script src="./vendor/purify.min.js" defer></script>
-  <script src="./markdown.js" defer></script>
   <script src="./app.js" defer></script>
 </head>
 <body>
@@ -26,6 +23,22 @@
       <span class="badge">Local AI · Qwen3 8B · Thinking off</span>
     </header>
 
+    <div class="workspace">
+    <aside class="chat-sidebar" aria-label="Saved conversations">
+      <button id="new-chat" class="secondary-button" type="button">＋ New chat</button>
+      <p class="sidebar-label">Saved conversations</p>
+      <nav id="chat-list" aria-label="Choose a conversation"></nav>
+      <button id="reload-chats" class="secondary-button" type="button">Reload chats</button>
+      <p id="chat-status" role="status">Loading saved chats…</p>
+    </aside>
+    <div class="chat-panel">
+    <div class="chat-heading">
+      <h2 id="chat-title">New chat</h2>
+      <div class="chat-actions">
+        <button id="rename-chat" class="secondary-button" type="button">Rename</button>
+        <button id="delete-chat" class="secondary-button" type="button">Delete</button>
+      </div>
+    </div>
     <section class="toolbar" aria-label="Chat settings">
       <div class="personality-control">
         <label for="personality">Personality</label>
@@ -70,8 +83,22 @@
 
     <footer id="composer-help">
       Enter to send · Shift + Enter for a new line ·
-      Chat resets when you refresh
+      Chats saved on this computer · Only recent messages reach the model
     </footer>
+    </div>
+    </div>
   </main>
+  <dialog id="chat-dialog" aria-labelledby="dialog-title">
+    <form method="dialog">
+      <h2 id="dialog-title">Chat action</h2>
+      <p id="dialog-description"></p>
+      <label id="dialog-label" for="dialog-input">Conversation name</label>
+      <input id="dialog-input" type="text" maxlength="100" autocomplete="off">
+      <div class="dialog-actions">
+        <button class="secondary-button" value="cancel" formnovalidate>Cancel</button>
+        <button id="dialog-confirm" class="send-button" value="confirm">Confirm</button>
+      </div>
+    </form>
+  </dialog>
 </body>
 </html>

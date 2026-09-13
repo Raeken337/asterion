@@ -7,6 +7,164 @@ const sendButton = form.querySelector('button[type="submit"]');
 
 let isSending = false;
 let conversation = [];
+let activeChat = null;
+let chatList = [];
+let busy = false;
+let needsReload = false;
+const chatListElement = document.querySelector("#chat-list");
+const statusElement = document.querySelector("#chat-status");
+const newButton = document.querySelector("#new-chat");
+const reloadButton = document.querySelector("#reload-chats");
+const renameButton = document.querySelector("#rename-chat");
+const deleteButton = document.querySelector("#delete-chat");
+
+function ask(title, description, initialValue = null, confirmLabel = "Confirm") {
+  const dialog = document.querySelector("#chat-dialog");
+  const field = document.querySelector("#dialog-input");
+  document.querySelector("#dialog-title").textContent = title;
+  document.querySelector("#dialog-description").textContent = description;
+  document.querySelector("#dialog-confirm").textContent = confirmLabel;
+  document.querySelector("#dialog-label").hidden = initialValue === null;
+  field.hidden = initialValue === null;
+  field.required = initialValue !== null;
+  field.value = initialValue || "";
+  dialog.returnValue = "cancel";
+  return new Promise(resolve => {
+    dialog.addEventListener("close", () => {
+      resolve(dialog.returnValue === "confirm" ? (initialValue === null ? true : field.value) : null);
+    }, { once: true });
+    dialog.showModal();
+    if (initialValue !== null) { field.focus(); field.select(); }
+  });
+}
+
+async function api(path, method = "GET", data) {
+  const response = await fetch(path, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    ...(data === undefined ? {} : { body: JSON.stringify(data) })
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || "Could not update saved chats.");
+  return result;
+}
+
+function controls() {
+  const locked = busy || isSending;
+  for (const button of [newButton, reloadButton, ...chatListElement.querySelectorAll("button")]) {
+    button.disabled = locked;
+  }
+  for (const element of [sendButton, clearButton, renameButton, deleteButton, personality, input]) {
+    element.disabled = locked || !activeChat || needsReload;
+  }
+}
+
+function renderList() {
+  chatListElement.replaceChildren();
+  for (const chat of chatList) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "chat-link";
+    button.textContent = chat.title;
+    if (chat.id === activeChat?.id) button.setAttribute("aria-current", "page");
+    button.addEventListener("click", () => run(() => openChat(chat.id)));
+    chatListElement.append(button);
+  }
+  controls();
+}
+
+function displayChat(chat) {
+  activeChat = chat;
+  needsReload = false;
+  conversation = chat.messages.slice(-12).map(({ role, content }) => ({ role, content }));
+  personality.value = chat.personality;
+  document.querySelector("#chat-title").textContent = chat.title;
+  messages.replaceChildren();
+  showWelcome();
+  for (const item of chat.messages) {
+    const label = [...personality.options].find(option => option.value === item.personality)?.text || "Assistant";
+    addMessage(item.role, item.content, label);
+    if (item.truncated) addMessage("system", "This reply reached its length limit. Ask Asterion to continue.");
+  }
+  input.value = "";
+  try { localStorage.setItem("asterion.activeChat", chat.id); } catch { /* Optional selection hint. */ }
+  renderList();
+}
+
+async function refreshList() {
+  chatList = (await api("/api/chats")).chats;
+  renderList();
+}
+
+async function openChat(id) {
+  if (input.value.trim() && !await ask("Switch chats?", "Your unsent draft will be discarded.")) return;
+  displayChat(await api(`/api/chats/${id}`));
+  statusElement.textContent = "Saved locally on this computer.";
+}
+
+async function run(action) {
+  if (busy || isSending) return;
+  busy = true;
+  controls();
+  try {
+    await action();
+  } catch (error) {
+    statusElement.textContent = `${error.message} Use Reload chats to try again.`;
+  } finally {
+    busy = false;
+    controls();
+  }
+}
+
+async function loadChats() {
+  await refreshList();
+  let remembered;
+  try { remembered = localStorage.getItem("asterion.activeChat"); } catch { /* Optional. */ }
+  const id = chatList.find(chat => chat.id === (activeChat?.id || remembered))?.id || chatList[0]?.id;
+  if (id) await openChat(id);
+  else {
+    displayChat(await api("/api/chats", "POST", { personality: "core" }));
+    await refreshList();
+  }
+  statusElement.textContent = "Saved locally on this computer.";
+}
+
+newButton.addEventListener("click", () => run(async () => {
+  if (input.value.trim() && !await ask("Start a new chat?", "Your unsent draft will be discarded.")) return;
+  displayChat(await api("/api/chats", "POST", { personality: "core" }));
+  await refreshList();
+  statusElement.textContent = "New chat saved.";
+}));
+reloadButton.addEventListener("click", () => run(loadChats));
+renameButton.addEventListener("click", () => run(async () => {
+  const title = await ask("Rename conversation", "Choose a name up to 100 characters.", activeChat.title, "Save name");
+  if (title === null) return;
+  const updated = await api(`/api/chats/${activeChat.id}`, "PATCH", { revision: activeChat.revision, title });
+  activeChat = updated;
+  document.querySelector("#chat-title").textContent = updated.title;
+  await refreshList();
+  statusElement.textContent = "Chat renamed.";
+}));
+deleteButton.addEventListener("click", () => run(async () => {
+  if (!await ask("Delete conversation?", `Delete “${activeChat.title}” and all its messages? This cannot be undone.`, null, "Delete chat")) return;
+  await api(`/api/chats/${activeChat.id}`, "DELETE", { revision: activeChat.revision });
+  activeChat = null;
+  conversation = [];
+  messages.replaceChildren();
+  input.value = "";
+  document.querySelector("#chat-title").textContent = "New chat";
+  await loadChats();
+}));
+personality.addEventListener("change", () => run(async () => {
+  try {
+    activeChat = await api(`/api/chats/${activeChat.id}`, "PATCH", {
+      revision: activeChat.revision, personality: personality.value
+    });
+    await refreshList();
+  } finally {
+    personality.value = activeChat.personality;
+  }
+}));
 
 function addMessage(role, text, modeLabel = "") {
   const message = document.createElement("article");
@@ -20,7 +178,10 @@ function addMessage(role, text, modeLabel = "") {
   } else if (role === "system") {
     label.textContent = "Asterion notice";
   } else {
-    label.textContent = `Asterion · ${modeLabel}`;
+  label.textContent =
+    modeLabel === "Asterion · Core"
+      ? "Asterion · Core"
+      : `Asterion · ${modeLabel}`;
   }
 
   const body = document.createElement("div");
@@ -56,17 +217,15 @@ function showWelcome() {
   addMessage(
     "system",
     "Welcome to Asterion 🌙 Replies appear as your local model " +
-      "generates them. Recent exchanges provide context; clear chat " +
-      "or refresh resets it. Web access and lasting memory are not connected."
+      "generates them. Completed exchanges are saved on this computer. " +
+      "Only this chat’s recent exchanges provide model context. Web access " +
+      "and cross-chat memory are not connected."
   );
 }
 
 function setSending(sending) {
   isSending = sending;
-  sendButton.disabled = sending;
-  clearButton.disabled = sending;
-  personality.disabled = sending;
-  input.disabled = sending;
+  controls();
   sendButton.textContent = sending ? "Replying…" : "Send ↑";
 }
 
@@ -135,7 +294,7 @@ async function readEvents(response, onEvent, onActivity) {
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
 
-  if (isSending) return;
+  if (isSending || busy || !activeChat || needsReload) return;
 
   const text = input.value.trim();
 
@@ -182,7 +341,8 @@ form.addEventListener("submit", async (event) => {
       body: JSON.stringify({
         message: text,
         personality: selectedMode,
-        history: conversation
+        chat_id: activeChat.id,
+        revision: activeChat.revision
       }),
       signal: controller.signal
     });
@@ -209,6 +369,8 @@ form.addEventListener("submit", async (event) => {
         } else if (event.type === "done") {
           completed = true;
           truncated = event.truncated === true;
+          activeChat.revision = event.revision;
+          activeChat.title = event.title;
         } else if (event.type === "error") {
           throw new Error(event.message || "The model could not finish.");
         } else {
@@ -228,6 +390,14 @@ form.addEventListener("submit", async (event) => {
     );
 
     conversation = conversation.slice(-12);
+    activeChat.messages.push(
+      { role: "user", content: text },
+      { role: "assistant", content: reply, personality: selectedMode, truncated }
+    );
+    document.querySelector("#chat-title").textContent = activeChat.title;
+    statusElement.textContent = "Conversation saved.";
+    // Sidebar refresh failures must not discard a successfully saved exchange.
+    try { await refreshList(); } catch { statusElement.textContent = "Reply saved. Reload chats to refresh the list."; }
 
     if (truncated) {
       addMessage(
@@ -258,10 +428,12 @@ form.addEventListener("submit", async (event) => {
 
     addMessage(
       "system",
-      notice + " This attempt was discarded; your message is ready to retry."
+      notice + " Reopen this chat to check its saved state before retrying."
     );
 
     input.value = text;
+    needsReload = true;
+    statusElement.textContent = "Reload chats before retrying; the reply may have saved before the connection ended.";
   } finally {
     window.clearTimeout(timeoutId);
     assistantBubble.removeAttribute("aria-busy");
@@ -281,13 +453,13 @@ input.addEventListener("keydown", (event) => {
   }
 });
 
-clearButton.addEventListener("click", () => {
-  if (isSending) return;
+clearButton.addEventListener("click", () => run(async () => {
+  if (!await ask("Clear conversation?", "Permanently clear all saved messages in this chat? The conversation itself will remain.", null, "Clear messages")) return;
+  displayChat(await api(`/api/chats/${activeChat.id}`, "PATCH", {
+    revision: activeChat.revision, clear: true
+  }));
+  await refreshList();
+  statusElement.textContent = "Chat cleared.";
+}));
 
-  conversation = [];
-  messages.replaceChildren();
-  showWelcome();
-  input.focus();
-});
-
-showWelcome();
+run(loadChats);

@@ -4,7 +4,9 @@ from pathlib import Path
 from flask import Flask, Response, jsonify, request
 
 from local_model import MODEL_NAME, ModelError, stream_reply
-from personalities import PERSONALITIES, build_system_prompt
+from personalities import ASPECTS, build_system_prompt
+from chat_store import ChatStore, ChatMissing, ChatConflict
+import sqlite3
 
 import webbrowser
 from threading import Timer
@@ -19,6 +21,86 @@ app = Flask(
 )
 
 app.config["MAX_CONTENT_LENGTH"] = 256 * 1024
+app.config["CHAT_DB"] = PROJECT_DIR / "data" / "chats.sqlite3"
+
+
+def store():
+    return ChatStore(Path(app.config["CHAT_DB"]))
+
+
+@app.errorhandler(ChatMissing)
+def chat_missing(error):
+    return jsonify(error=str(error)), 404
+
+
+@app.errorhandler(ChatConflict)
+def chat_conflict(error):
+    return jsonify(error=str(error)), 409
+
+
+@app.errorhandler(sqlite3.Error)
+def storage_error(error):
+    app.logger.exception("Conversation storage failed")
+    return jsonify(error="Could not access saved chats. Check disk space and folder permissions."), 503
+
+
+def valid_revision(data):
+    return type(data.get("revision")) is int and data["revision"] >= 0
+
+
+@app.get("/api/chats")
+def list_chats():
+    return jsonify(chats=store().list())
+
+
+@app.post("/api/chats")
+def create_chat():
+    data = request.get_json(silent=True)
+    if (not isinstance(data, dict) or not isinstance(data.get("personality"), str)
+            or data["personality"] not in ASPECTS):
+        return jsonify(error="Choose a supported personality."), 400
+    return jsonify(store().create(data["personality"])), 201
+
+
+@app.get("/api/chats/<chat_id>")
+def get_chat(chat_id):
+    return jsonify(store().get(chat_id))
+
+
+@app.route("/api/chats/<chat_id>", methods=["PATCH", "DELETE"])
+def change_chat(chat_id):
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or not valid_revision(data):
+        return jsonify(error="A chat revision is required. Reopen this chat."), 400
+    if request.method == "DELETE":
+        store().mutate(chat_id, data["revision"], None)
+        return jsonify(deleted=True)
+    if set(data) - {"revision", "title", "personality", "clear"}:
+        return jsonify(error="Unsupported chat change."), 400
+    if "title" in data and (not isinstance(data["title"], str)
+                           or not 1 <= len(data["title"].strip()) <= 100):
+        return jsonify(error="Use a title between 1 and 100 characters."), 400
+    if "personality" in data and (not isinstance(data["personality"], str)
+                                 or data["personality"] not in ASPECTS):
+        return jsonify(error="Choose a supported personality."), 400
+    if "clear" in data and data["clear"] is not True:
+        return jsonify(error="Invalid clear request."), 400
+
+    def update(chat):
+        if "title" in data:
+            chat["title"] = data["title"].strip()
+        if "personality" in data:
+            chat["personality"] = data["personality"]
+        if data.get("clear"):
+            chat["messages"] = []
+    return jsonify(store().mutate(chat_id, data["revision"], update))
+
+
+@app.after_request
+def private_api(response):
+    if request.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
 
 MAX_HISTORY_MESSAGES = 12
 CONTEXT_BYTE_BUDGET = 6000
@@ -99,7 +181,7 @@ def chat():
         return jsonify(error="Send a JSON object."), 400
 
     message = data.get("message")
-    personality = data.get("personality", "playful")
+    personality = data.get("personality", "core")
 
     if not isinstance(message, str) or not message.strip():
         return jsonify(error="Please enter a message."), 400
@@ -109,13 +191,18 @@ def chat():
     if len(message) > 4000 or text_size(message) > CONTEXT_BYTE_BUDGET:
         return jsonify(error="That message is too long. Please shorten it."), 400
 
-    if not isinstance(personality, str) or personality not in PERSONALITIES:
+    if not isinstance(personality, str) or personality not in ASPECTS:
         return jsonify(error="Choose a supported personality."), 400
 
-    try:
-        history = validate_history(data.get("history", []))
-    except ValueError as error:
-        return jsonify(error=str(error)), 400
+    chat_id = data.get("chat_id")
+    if not isinstance(chat_id, str) or not valid_revision(data):
+        return jsonify(error="Reopen your chat, then send your message again."), 400
+    saved = store().get(chat_id)
+    revision = data["revision"]
+    if saved["revision"] != revision:
+        raise ChatConflict("This chat changed in another tab. Reopen it before continuing.")
+    history = saved["messages"][-MAX_HISTORY_MESSAGES:]
+    history = [{"role": item["role"], "content": item["content"]} for item in history]
 
     recent = select_recent_history(history, message)
 
@@ -130,11 +217,22 @@ def chat():
 
     def generate_events():
         stream = stream_reply(model_messages)
+        reply = ""
 
         try:
             for event in stream:
+                if event["type"] == "chunk":
+                    reply += event["text"]
+                elif event["type"] == "done":
+                    if not reply.strip():
+                        raise ModelError("The model did not finish a usable reply.")
+                    updated = store().append_exchange(
+                        chat_id, revision, message, reply, personality,
+                        event.get("truncated", False),
+                    )
+                    event = {**event, "revision": updated["revision"], "title": updated["title"]}
                 yield json.dumps(event) + "\n"
-        except ModelError as error:
+        except (ModelError, ChatMissing, ChatConflict) as error:
             yield json.dumps({
                 "type": "error",
                 "message": str(error),

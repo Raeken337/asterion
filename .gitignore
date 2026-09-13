@@ -22,3 +22,6 @@ Thumbs.db
 __pycache__/
 *.py[cod]
 .pytest_cache/
+
+# Private local conversations (including SQLite journal files)
+data/
