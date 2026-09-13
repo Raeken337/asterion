@@ -2,46 +2,73 @@ from pathlib import Path
 
 from flask import Flask, jsonify, request
 
+from local_model import MODEL_NAME, ModelError, generate_reply
+from personalities import PERSONALITIES, build_system_prompt
+
 
 PROJECT_DIR = Path(__file__).resolve().parent
-PUBLIC_DIR = PROJECT_DIR / "public"
 
 app = Flask(
     __name__,
-    static_folder=str(PUBLIC_DIR),
+    static_folder=str(PROJECT_DIR / "public"),
     static_url_path="",
 )
 
+app.config["MAX_CONTENT_LENGTH"] = 256 * 1024
 
-app.config["MAX_CONTENT_LENGTH"] = 32 * 1024
+MAX_HISTORY_MESSAGES = 12
+CONTEXT_BYTE_BUDGET = 6000
 
-DEMO_REPLIES = {
-    "playful": (
-        "Your message made it to Python and back. "
-        "Bro has a backend now 🌙 "
-        "This reply is still scripted—no AI connected yet."
-    ),
-    "brooding": (
-        "The connection is established. "
-        "Your words reached the server; this response came back. "
-        "For now, it is scripted."
-    ),
-    "clinical": (
-        "Browser-to-server communication confirmed. "
-        "Actual intelligence remains pending. "
-        "A functional nervous system; currently no thoughts."
-    ),
-    "boomer": (
-        "Message received down here in the engine room. "
-        "Python sent this one back. "
-        "Still scripted, but the plumbing works."
-    ),
-    "creative": (
-        "Your transmission reached the observatory. "
-        "Python has returned its first signal across the dark. "
-        "A scripted constellation, awaiting a thinking voice."
-    ),
-}
+
+def text_size(text):
+    return len(text.encode("utf-8"))
+
+
+def validate_history(history):
+    if not isinstance(history, list):
+        raise ValueError("Conversation history must be a list.")
+
+    if len(history) > MAX_HISTORY_MESSAGES or len(history) % 2:
+        raise ValueError("Conversation history must contain complete exchanges.")
+
+    clean = []
+
+    for index, item in enumerate(history):
+        expected_role = "user" if index % 2 == 0 else "assistant"
+
+        if not isinstance(item, dict) or item.get("role") != expected_role:
+            raise ValueError("Conversation history has an invalid role.")
+
+        content = item.get("content")
+
+        if (
+            not isinstance(content, str)
+            or not content.strip()
+            or len(content) > 16000
+        ):
+            raise ValueError("Conversation history contains invalid text.")
+
+        clean.append({"role": expected_role, "content": content})
+
+    return clean
+
+
+def select_recent_history(history, current_message):
+    remaining = CONTEXT_BYTE_BUDGET - text_size(current_message)
+    selected = []
+
+    # Keep complete user/assistant pairs, newest first.
+    for index in range(len(history) - 2, -1, -2):
+        pair = history[index:index + 2]
+        size = sum(text_size(item["content"]) for item in pair)
+
+        if size > remaining:
+            break
+
+        selected = pair + selected
+        remaining -= size
+
+    return selected
 
 
 @app.get("/")
@@ -51,7 +78,13 @@ def home():
 
 @app.get("/api/health")
 def health():
-    return jsonify(status="ok", mode="demo")
+    # This reports Flask's configuration, not Ollama's availability.
+    return jsonify(
+        server="ok",
+        mode="local",
+        model=MODEL_NAME,
+        ollama="not_checked",
+    )
 
 
 @app.post("/api/chat")
@@ -67,25 +100,46 @@ def chat():
     if not isinstance(message, str) or not message.strip():
         return jsonify(error="Please enter a message."), 400
 
-    if len(message) > 4000:
-        return jsonify(error="Keep messages within 4,000 characters."), 400
+    message = message.strip()
 
-    if (
-        not isinstance(personality, str)
-        or personality not in DEMO_REPLIES
-    ):
+    if len(message) > 4000 or text_size(message) > CONTEXT_BYTE_BUDGET:
+        return jsonify(error="That message is too long. Please shorten it."), 400
+
+    if not isinstance(personality, str) or personality not in PERSONALITIES:
         return jsonify(error="Choose a supported personality."), 400
 
+    try:
+        history = validate_history(data.get("history", []))
+    except ValueError as error:
+        return jsonify(error=str(error)), 400
+
+    recent = select_recent_history(history, message)
+
+    model_messages = [
+        {
+            "role": "system",
+            "content": build_system_prompt(personality),
+        },
+        *recent,
+        {"role": "user", "content": message},
+    ]
+
+    try:
+        result = generate_reply(model_messages)
+    except ModelError as error:
+        return jsonify(error=str(error)), 502
+
     return jsonify(
-        reply=DEMO_REPLIES[personality],
+        **result,
+        mode="local",
+        model=MODEL_NAME,
         personality=personality,
-        mode="demo",
     )
 
 
 @app.errorhandler(413)
 def request_too_large(error):
-    return jsonify(error="That request is too large."), 413
+    return jsonify(error="That request is too large. Clear chat and retry."), 413
 
 
 if __name__ == "__main__":
