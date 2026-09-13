@@ -23,10 +23,12 @@ function addMessage(role, text, modeLabel = "") {
     label.textContent = `Asterion · ${modeLabel}`;
   }
 
-  const paragraph = document.createElement("p");
-  paragraph.textContent = text;
+  const body = document.createElement("div");
+  body.className = "message-body";
 
-  message.append(label, paragraph);
+  renderMessageBody(body, text, role === "assistant");
+
+  message.append(label, body);
   messages.append(message);
   messages.scrollTop = messages.scrollHeight;
 
@@ -39,9 +41,12 @@ function updateReply(bubble, text) {
     messages.scrollTop -
     messages.clientHeight < 100;
 
-  bubble.querySelector("p").textContent = text;
+  renderMessageBody(
+    bubble.querySelector(".message-body"),
+    text,
+    true
+  );
 
-  // Let the user read older messages without pulling them downward.
   if (nearBottom) {
     messages.scrollTop = messages.scrollHeight;
   }
