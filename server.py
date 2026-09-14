@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from flask import Flask, Response, jsonify, request
+from flask import Flask, Response, jsonify, request, send_from_directory
 
 from local_model import MODEL_NAME, ModelError, stream_reply
 from personalities import ASPECTS, build_system_prompt
@@ -13,6 +13,7 @@ from threading import Timer
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
+UI_DIR = PROJECT_DIR / "ui"
 
 app = Flask(
     __name__,
@@ -22,6 +23,18 @@ app = Flask(
 
 app.config["MAX_CONTENT_LENGTH"] = 256 * 1024
 app.config["CHAT_DB"] = PROJECT_DIR / "data" / "chats.sqlite3"
+
+
+@app.get("/ui/<asset>")
+def ui_background(asset):
+    assets = {
+        "background.png": "asterion background.png",
+        "background.mp4": "asterion background animation.mp4",
+    }
+    filename = assets.get(asset)
+    if filename is None:
+        return jsonify(error="Asset not found."), 404
+    return send_from_directory(UI_DIR, filename, conditional=True)
 
 
 def store():

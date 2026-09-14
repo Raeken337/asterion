@@ -2,103 +2,304 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Asterion</title>
   <link rel="stylesheet" href="./styles.css">
   <script src="./vendor/marked.umd.js" defer></script>
   <script src="./vendor/purify.min.js" defer></script>
   <script src="./markdown.js" defer></script>
   <script src="./app.js" defer></script>
+  <script src="./ui.js" defer></script>
 </head>
+
 <body>
-  <main class="app">
-    <header class="header">
-      <div class="identity">
-        <span class="moon" aria-hidden="true">☾</span>
-        <div>
-          <h1>Asterion</h1>
-          <p>A little clarity in the cosmos.</p>
-        </div>
-      </div>
-      <span class="badge">Local AI · Qwen3 8B · Thinking off</span>
-    </header>
-
-    <div class="workspace">
-    <aside class="chat-sidebar" aria-label="Saved conversations">
-      <button id="new-chat" class="secondary-button" type="button">＋ New chat</button>
-      <p class="sidebar-label">Saved conversations</p>
-      <nav id="chat-list" aria-label="Choose a conversation"></nav>
-      <button id="reload-chats" class="secondary-button" type="button">Reload chats</button>
-      <p id="chat-status" role="status">Loading saved chats…</p>
-    </aside>
-    <div class="chat-panel">
-    <div class="chat-heading">
-      <h2 id="chat-title">New chat</h2>
-      <div class="chat-actions">
-        <button id="rename-chat" class="secondary-button" type="button">Rename</button>
-        <button id="delete-chat" class="secondary-button" type="button">Delete</button>
-      </div>
-    </div>
-    <section class="toolbar" aria-label="Chat settings">
-      <div class="personality-control">
-        <label for="personality">Aspect</label>
-        <select id="personality" aria-label="Aspect of Asterion">
-          <option value="core">Asterion</option>
-          <option value="playful">Zephyr · Playful</option>
-          <option value="brooding">Nereus · Brooding</option>
-          <option value="clinical">Soren · Clinical</option>
-          <option value="boomer">Altair · Guide</option>
-          <option value="celestial">Caelian · Celestial</option>
-        </select>
-        </select>
+  <div class="app-shell">
+    <aside id="sidebar" class="sidebar" aria-label="Navigation">
+      <div class="brand-row">
+        <button class="brand" data-page="chat" aria-label="Return to chat">
+          <span>☾</span> Asterion
+        </button>
+        <button
+          id="collapse-sidebar"
+          class="icon-button"
+          aria-label="Collapse sidebar"
+        >«</button>
       </div>
 
-      <button id="clear-chat" class="secondary-button" type="button">
-        Clear chat
+      <button id="new-chat" class="new-chat">
+        <i data-icon="edit"></i>
+        New Chat
+        <span>＋</span>
       </button>
-    </section>
 
-    <section
-      id="messages"
-      class="messages"
-      role="log"
-      aria-label="Conversation"
-      aria-live="polite"
-      aria-relevant="additions"
-    ></section>
+      <nav class="primary-nav" aria-label="Main navigation">
+        <button data-page="images">
+          <i data-icon="image"></i>Images
+        </button>
+        <button data-page="library">
+          <i data-icon="library"></i>Library
+        </button>
+        <button data-page="schedule">
+          <i data-icon="clock"></i>Schedule
+        </button>
+        <button data-page="plugins">
+          <i data-icon="grid"></i>Plugins
+        </button>
+        <button data-page="more">
+          <i data-icon="more"></i>More
+        </button>
+      </nav>
 
-    <form id="chat-form" class="composer">
-      <label class="visually-hidden" for="message-input">
-        Your message
-      </label>
-      <textarea
-        id="message-input"
-        name="message"
-        rows="2"
-        maxlength="4000"
-        placeholder="What’s on your mind?"
-        aria-describedby="composer-help"
-        required
-      ></textarea>
-      <button class="send-button" type="submit">Send ↑</button>
-    </form>
+      <div class="sidebar-scroll">
+        <details class="nav-section">
+          <summary><i data-icon="pin"></i>Pinned</summary>
+          <p class="quiet">Pinned conversations will live here.</p>
+        </details>
 
-    <footer id="composer-help">
-      Enter to send · Shift + Enter for a new line ·
-      Chats saved on this computer · Only recent messages reach the model
-    </footer>
+        <details class="nav-section">
+          <summary><i data-icon="folder"></i>Projects</summary>
+          <p class="quiet">
+            A place for connected ideas. Coming later.
+          </p>
+        </details>
+
+        <section class="nav-section saved-chats">
+          <div class="section-heading">
+            <h2><i data-icon="chat"></i>Chats</h2>
+            <button
+              id="reload-chats"
+              class="icon-button"
+              aria-label="Reload chats"
+              title="Reload chats"
+            >↻</button>
+          </div>
+          <nav id="chat-list" aria-label="Choose a conversation"></nav>
+        </section>
+      </div>
+
+      <p id="chat-status" class="save-status" role="status">
+        Loading saved chats…
+      </p>
+
+      <div class="profile-row">
+        <span class="avatar" aria-hidden="true">☾</span>
+        <div>
+          <strong>Your space</strong>
+          <small>Local on this computer</small>
+        </div>
+        <button
+          id="open-settings"
+          class="icon-button"
+          aria-label="Settings"
+        >
+          <i data-icon="settings"></i>
+        </button>
+      </div>
+    </aside>
+
+    <main class="main-panel">
+      <div class="scenery" aria-hidden="true">
+        <video
+          id="ambient-video"
+          muted
+          loop
+          playsinline
+          preload="none"
+          poster="/ui/background.png"
+        >
+          <source src="/ui/background.mp4" type="video/mp4">
+        </video>
+      </div>
+
+      <header class="topbar">
+        <button
+          id="expand-sidebar"
+          class="icon-button"
+          aria-label="Open sidebar"
+          aria-controls="sidebar"
+          aria-expanded="true"
+        >
+          <i data-icon="panel"></i>
+        </button>
+        <span id="view-label">Your space, a little quieter.</span>
+        <span class="local-badge"><b></b>Local AI</span>
+      </header>
+
+      <section id="chat-view" class="view chat-view">
+        <div class="chat-heading">
+          <h2 id="chat-title">New chat</h2>
+          <div class="chat-actions">
+            <button id="rename-chat">Rename</button>
+            <button id="clear-chat">Clear chat</button>
+            <button id="delete-chat">Delete</button>
+          </div>
+        </div>
+
+        <div class="aspect-row">
+          <label for="personality">Aspect</label>
+          <select id="personality" aria-label="Aspect of Asterion">
+            <option value="core">Asterion</option>
+            <option value="playful">Zephyr · Playful</option>
+            <option value="brooding">Nereus · Brooding</option>
+            <option value="clinical">Soren · Clinical</option>
+            <option value="boomer">Altair · Guide</option>
+            <option value="celestial">Caelian · Celestial</option>
+          </select>
+        </div>
+
+        <div id="welcome" class="welcome">
+          <span class="eyebrow">A LITTLE CLARITY IN THE COSMOS</span>
+          <h1 id="greeting">Good evening.</h1>
+          <p>A space for your thoughts.</p>
+          <div class="ornament" aria-hidden="true">──── ✧ ────</div>
+        </div>
+
+        <section
+          id="messages"
+          class="messages"
+          role="log"
+          aria-label="Conversation"
+          aria-live="polite"
+          aria-relevant="additions"
+        ></section>
+
+        <form id="chat-form" class="composer">
+          <label class="visually-hidden" for="message-input">
+            Your message
+          </label>
+          <textarea
+            id="message-input"
+            rows="2"
+            maxlength="4000"
+            placeholder="What would you like to explore today?"
+            aria-describedby="composer-help"
+            required
+          ></textarea>
+
+          <div class="composer-tools">
+            <button
+              type="button"
+              disabled
+              title="Attachments are coming later"
+              aria-label="Attachments coming later"
+              class="icon-button"
+            >＋</button>
+
+            <div class="tool-chips">
+              <button type="button" disabled>◎ Search</button>
+              <button type="button" disabled>⌘ Deep Research</button>
+              <button type="button" disabled>▧ Create Image</button>
+            </div>
+
+            <button type="submit" class="send-button">Send ↑</button>
+          </div>
+        </form>
+
+        <footer id="composer-help">
+          Enter to send · Shift + Enter for a new line · Saved locally
+        </footer>
+
+        <div id="suggestions" class="suggestions">
+          <button data-prompt="Help me build a routine that fits my life.">
+            <i data-icon="leaf"></i>
+            <span>Help me build<br>a better routine</span>
+            <b>↗</b>
+          </button>
+
+          <button data-prompt="Let's brainstorm an unusual story idea.">
+            <i data-icon="book"></i>
+            <span>Brainstorm<br>a story idea</span>
+            <b>↗</b>
+          </button>
+
+          <button data-prompt="Help me explore ideas for a dream trip.">
+            <i data-icon="mountain"></i>
+            <span>Plan a dream<br>trip with me</span>
+            <b>↗</b>
+          </button>
+
+          <button data-prompt="I'd like help understanding something complex.">
+            <i data-icon="spark"></i>
+            <span>Explain something<br>complex simply</span>
+            <b>↗</b>
+          </button>
+        </div>
+
+        <div id="home-signature" class="home-signature">
+          <i>somewhere between lunar glow and tidal drift</i>
+          <span>✧ &nbsp; A S T E R I O N &nbsp; ✧</span>
+        </div>
+      </section>
+
+      <section id="feature-view" class="view feature-view" hidden>
+        <span class="eyebrow">YOUR ASTERION</span>
+        <h1 id="feature-title"></h1>
+        <p id="feature-description"></p>
+        <div id="feature-content"></div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="settings-dialog" aria-labelledby="settings-title">
+    <div class="dialog-heading">
+      <h2 id="settings-title">Settings</h2>
+      <button
+        id="close-settings"
+        class="icon-button"
+        aria-label="Close Settings"
+      >×</button>
     </div>
-    </div>
-  </main>
+
+    <p class="quiet">Make this space feel like yours.</p>
+    <h3>Appearance</h3>
+
+    <label class="setting-row" for="font-size">
+      Chat text size
+      <select id="font-size">
+        <option value="14">Small</option>
+        <option value="16">Default</option>
+        <option value="18">Large</option>
+        <option value="20">Extra large</option>
+      </select>
+    </label>
+
+    <label class="setting-row" for="animate-background">
+      Animated background
+      <input id="animate-background" type="checkbox">
+    </label>
+
+    <p class="quiet">
+      Animation pauses when this tab is hidden. Your system’s
+      reduced-motion preference takes priority.
+    </p>
+
+    <hr>
+    <h3>Personalisation</h3>
+    <p class="quiet">
+      Nickname, preferred address, About Me, memory, and default
+      Aspect settings will be added in the next stage.
+    </p>
+    <p id="appearance-status" class="quiet" role="status"></p>
+  </dialog>
+
   <dialog id="chat-dialog" aria-labelledby="dialog-title">
     <form method="dialog">
       <h2 id="dialog-title">Chat action</h2>
       <p id="dialog-description"></p>
       <label id="dialog-label" for="dialog-input">Conversation name</label>
-      <input id="dialog-input" type="text" maxlength="100" autocomplete="off">
+      <input
+        id="dialog-input"
+        type="text"
+        maxlength="100"
+        autocomplete="off"
+      >
       <div class="dialog-actions">
-        <button class="secondary-button" value="cancel" formnovalidate>Cancel</button>
-        <button id="dialog-confirm" class="send-button" value="confirm">Confirm</button>
+        <button value="cancel" formnovalidate>Cancel</button>
+        <button
+          value="confirm"
+          id="dialog-confirm"
+          class="send-button"
+        >Confirm</button>
       </div>
     </form>
   </dialog>

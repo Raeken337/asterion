@@ -89,6 +89,7 @@ function displayChat(chat) {
   input.value = "";
   try { localStorage.setItem("asterion.activeChat", chat.id); } catch { /* Optional selection hint. */ }
   renderList();
+  window.dispatchEvent(new Event("asterion:chat-opened"));
 }
 
 async function refreshList() {
@@ -179,8 +180,8 @@ function addMessage(role, text, modeLabel = "") {
     label.textContent = "Asterion notice";
   } else {
   label.textContent =
-    modeLabel === "Asterion · Core"
-      ? "Asterion · Core"
+    modeLabel === "Asterion" || modeLabel === "Asterion · Core"
+      ? "Asterion"
       : `Asterion · ${modeLabel}`;
   }
 
@@ -214,13 +215,7 @@ function updateReply(bubble, text) {
 }
 
 function showWelcome() {
-  addMessage(
-    "system",
-    "Welcome to Asterion 🌙 Replies appear as your local model " +
-      "generates them. Completed exchanges are saved on this computer. " +
-      "Only this chat’s recent exchanges provide model context. Web access " +
-      "and cross-chat memory are not connected."
-  );
+  // The UI shell provides the empty-chat welcome screen.
 }
 
 function setSending(sending) {
